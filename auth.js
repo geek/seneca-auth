@@ -25,29 +25,25 @@ module.exports = function auth (options) {
   // using seneca.util.deepextend here, as there are sub properties
   options = seneca.util.deepextend(DefaultOptions, options)
 
-  function migrate_options () {
-    if (options.service || options.sendemail || options.email) {
-      throw error('<' + (options.service ? 'service' : (options.sendemail ? 'sendemail' : 'email')) +
-        '> option is no longer supported, please check seneca-auth documentation for migrating to new version of seneca-auth')
-    }
-
-    if (options.tokenkey) {
-      seneca.log('<tokenkey> option is deprecated, please check seneca-auth documentation for migrating to new version of seneca-auth')
-    }
+  if (options.service || options.sendemail || options.email) {
+    throw error('<' + (options.service ? 'service' : (options.sendemail ? 'sendemail' : 'email')) +
+      '> option is no longer supported, please check seneca-auth documentation for migrating to new version of seneca-auth')
   }
 
-  migrate_options()
-  load_default_plugins()
+  if (options.tokenkey) {
+    seneca.log('<tokenkey> option is deprecated, please check seneca-auth documentation for migrating to new version of seneca-auth')
+  }
+
+  seneca.use(AuthRedirect, options.redirect || {})
 
   var m
   if ((m = options.prefix.match(/^(.*)\/+$/))) {
     options.prefix = m[1]
   }
 
-  // define seneca actions
-  // seneca.add({ role:'auth', wrap:'user' },      wrap_user)
-  seneca.add({init: 'auth'}, init)
+  var config = {prefix: options.prefix, redirects: {}}
 
+  // define seneca actions
   seneca.add({role: 'auth', cmd: 'register'}, cmd_register)
   seneca.add({role: 'auth', cmd: 'user'}, cmd_user)
   seneca.add({role: 'auth', cmd: 'instance'}, cmd_user)
@@ -64,16 +60,9 @@ module.exports = function auth (options) {
   seneca.add({role: 'auth', cmd: 'login'}, cmd_login)
   seneca.add({role: 'auth', cmd: 'logout'}, cmd_logout)
 
-  seneca.add({role: 'auth', cmd: 'register_service'},
-    cmd_register_service)
+  seneca.add({role: 'auth', cmd: 'register_service'}, cmd_register_service)
 
   seneca.add({role: 'auth', hook: 'map_fields'}, alias_fields)
-
-  function load_default_plugins () {
-    seneca.use(AuthToken)
-    seneca.use(AuthRedirect, options.redirect || {})
-    seneca.use(AuthUrlmatcher)
-  }
 
   function checkurl (match, done) {
     seneca.act("role:'auth',cmd: 'urlmatcher'", {spec: match}, function (err, checks) {
@@ -196,25 +185,6 @@ module.exports = function auth (options) {
     seneca.add({role: 'auth', trigger: 'service-login-' + service}, trigger_service_login)
     configure_services(service, conf)
   }
-
-//  function wrap_user( args, done ) {
-//    this.act({
-//      role:'util',
-//      cmd:'ensure_entity',
-//      pin:args.pin,
-//      entmap:{
-//        user:userent
-//      }
-//    })
-//
-//    this.wrap(args.pin, function( args, done ){
-//      args.user = args.user || (args.req$ && args.req$.seneca && args.req$.seneca.user ) || null
-//      this.parent(args,done)
-//    })
-//
-//    done()
-//  }
-//
 
   function alias_fields (userData, respond) {
     var data = userData.data
@@ -498,10 +468,6 @@ module.exports = function auth (options) {
     }
   }
 
-  function init (msg, respond) {
-    respond()
-  }
-
   function authcontext (req, res, msg, act, respond) {
     var user = req.seneca && req.seneca.user
     if (user) {
@@ -524,8 +490,6 @@ module.exports = function auth (options) {
       return respond(null, out)
     })
   }
-
-  var config = {prefix: options.prefix, redirects: {}}
 
   function do_respond (err, action, req, next, forceStatus, forceRedirect) {
     req.seneca.act("role: 'auth', cmd: 'redirect'", {kind: action}, function (errRedirect, redirect) {
@@ -716,19 +680,33 @@ module.exports = function auth (options) {
     }
   }
 
-  seneca.ready()
-  seneca.act(
-    "role:'web'",
-    {
-      plugin: 'auth',
-      config: config,
-      use: {
-        prefix: options.prefix,
-        pin: {role: 'auth', cmd: '*'},
-        startware: buildservice(),
-        map: map
+  seneca.ready(function () {
+    seneca.act(
+      "role:'web'",
+      {
+        plugin: 'auth',
+        config: config,
+        use: {
+          prefix: options.prefix,
+          pin: {role: 'auth', cmd: '*'},
+          startware: buildservice(),
+          map: map
+        }
       }
-    })
+    )
+  })
+
+  return {
+    name: 'auth'
+  }
+}
+
+module.exports.preload = function () {
+  var seneca = this
+
+  seneca.use(AuthToken)
+  seneca.use(AuthUrlmatcher)
+  seneca.use(AuthRedirect, {})
 
   return {
     name: 'auth'

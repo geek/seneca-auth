@@ -1,3 +1,5 @@
+'use strict'
+
 var Assert = require('assert')
 var _ = require('lodash')
 
